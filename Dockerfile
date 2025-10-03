@@ -1,5 +1,6 @@
 FROM python:3.11-slim
 WORKDIR /app
-RUN pip install flask youtube-transcript-api
+RUN pip install --no-cache-dir flask youtube-transcript-api==0.6.1
 COPY app.py .
+EXPOSE 8080
 CMD ["python", "app.py"]
