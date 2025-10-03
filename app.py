@@ -4,6 +4,7 @@ from youtube_transcript_api.proxies import WebshareProxyConfig
 from youtube_transcript_api._errors import TranscriptsDisabled, NoTranscriptFound, VideoUnavailable
 import os
 import traceback
+import requests
 
 app = Flask(__name__)
 
@@ -11,12 +12,23 @@ app = Flask(__name__)
 WEBSHARE_USERNAME = "slbfveyo"
 WEBSHARE_PASSWORD = "86rico8f7ml1"
 
-# Webshare Proxy Config mit Deutschland-Filter (optional, für bessere Performance)
+# Webshare Proxy Config (Rotating Residential Proxies)
 proxy_config = WebshareProxyConfig(
     proxy_username=WEBSHARE_USERNAME,
-    proxy_password=WEBSHARE_PASSWORD,
-    filter_ip_locations=["de", "us"]  # Optional: Nur deutsche/US IPs
+    proxy_password=WEBSHARE_PASSWORD
 )
+
+# Custom HTTP Session mit realistischem User-Agent
+def create_session():
+    """Erstellt eine Session mit Browser-ähnlichen Headers"""
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9,de;q=0.8',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Encoding': 'gzip, deflate'
+    })
+    return session
 
 @app.route('/transcript', methods=['GET'])
 def get_transcript():
@@ -33,7 +45,12 @@ def get_transcript():
         return jsonify({'error': 'video_id parameter required'}), 400
     
     try:
-        ytt_api = YouTubeTranscriptApi(proxy_config=proxy_config)
+        # Erstelle API-Instanz mit Custom Session + Webshare Proxy
+        session = create_session()
+        ytt_api = YouTubeTranscriptApi(
+            http_client=session,
+            proxy_config=proxy_config  # Offizieller Parameter-Name laut Doku
+        )
         
         # Fetch transcript mit Sprachpriorität: Deutsch > Englisch
         fetched_transcript = ytt_api.fetch(
@@ -81,7 +98,11 @@ def health():
 def test_proxy():
     """Testet ob Webshare Proxy funktioniert"""
     try:
-        ytt_api = YouTubeTranscriptApi(proxy_config=proxy_config)
+        session = create_session()
+        ytt_api = YouTubeTranscriptApi(
+            http_client=session,
+            proxy_config=proxy_config
+        )
         fetched = ytt_api.fetch('dQw4w9WgXcQ', languages=['en'])
         
         return jsonify({
@@ -105,7 +126,11 @@ def get_languages():
         return jsonify({'error': 'video_id parameter required'}), 400
     
     try:
-        ytt_api = YouTubeTranscriptApi(proxy_config=proxy_config)
+        session = create_session()
+        ytt_api = YouTubeTranscriptApi(
+            http_client=session,
+            proxy_config=proxy_config
+        )
         transcript_list = ytt_api.list(video_id)
         
         available = []
