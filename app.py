@@ -1,49 +1,46 @@
 from flask import Flask, request, jsonify
 from youtube_transcript_api import YouTubeTranscriptApi
-from youtube_transcript_api.proxies import GenericProxyConfig
+from youtube_transcript_api.proxies import WebshareProxyConfig
 from youtube_transcript_api._errors import TranscriptsDisabled, NoTranscriptFound, VideoUnavailable
 import os
-import random
+import traceback
 
 app = Flask(__name__)
 
-# Deine Webshare Proxies
-PROXIES = [
-    {"ip": "142.111.48.253", "port": "7030", "user": "slbfveyo", "pass": "86rico8f7ml1"},
-    {"ip": "198.23.239.134", "port": "6540", "user": "slbfveyo", "pass": "86rico8f7ml1"},
-    {"ip": "45.38.107.97", "port": "6014", "user": "slbfveyo", "pass": "86rico8f7ml1"},
-    {"ip": "107.172.163.27", "port": "6543", "user": "slbfveyo", "pass": "86rico8f7ml1"},
-    {"ip": "64.137.96.74", "port": "6641", "user": "slbfveyo", "pass": "86rico8f7ml1"},
-    {"ip": "154.203.43.247", "port": "5536", "user": "slbfveyo", "pass": "86rico8f7ml1"},
-    {"ip": "84.247.60.125", "port": "6095", "user": "slbfveyo", "pass": "86rico8f7ml1"},
-    {"ip": "216.10.27.159", "port": "6837", "user": "slbfveyo", "pass": "86rico8f7ml1"},
-    {"ip": "142.111.67.146", "port": "5611", "user": "slbfveyo", "pass": "86rico8f7ml1"},
-    {"ip": "142.147.128.93", "port": "6593", "user": "slbfveyo", "pass": "86rico8f7ml1"},
-]
+# Webshare Credentials
+WEBSHARE_USERNAME = "slbfveyo"
+WEBSHARE_PASSWORD = "86rico8f7ml1"
 
-def get_random_proxy_config():
-    """Erstellt eine zufällige Proxy-Config"""
-    proxy = random.choice(PROXIES)
-    proxy_url = f"http://{proxy['user']}:{proxy['pass']}@{proxy['ip']}:{proxy['port']}"
-    
-    return GenericProxyConfig(
-        http_url=proxy_url,
-        https_url=proxy_url
-    )
+# Webshare Proxy Config mit Deutschland-Filter (optional, für bessere Performance)
+proxy_config = WebshareProxyConfig(
+    proxy_username=WEBSHARE_USERNAME,
+    proxy_password=WEBSHARE_PASSWORD,
+    filter_ip_locations=["de", "us"]  # Optional: Nur deutsche/US IPs
+)
 
 @app.route('/transcript', methods=['GET'])
 def get_transcript():
+    """
+    Holt Transkript in Originalsprache (Deutsch oder Englisch)
+    Query Parameter:
+    - video_id: YouTube Video ID (required)
+    - preserve_formatting: true/false (optional, default: false)
+    """
     video_id = request.args.get('video_id')
+    preserve_formatting = request.args.get('preserve_formatting', 'false').lower() == 'true'
+    
     if not video_id:
         return jsonify({'error': 'video_id parameter required'}), 400
     
     try:
-        # Erstelle API-Instanz mit zufälligem Proxy
-        proxy_config = get_random_proxy_config()
         ytt_api = YouTubeTranscriptApi(proxy_config=proxy_config)
         
-        # Fetch transcript
-        fetched_transcript = ytt_api.fetch(video_id, languages=['de', 'en'])
+        # Fetch transcript mit Sprachpriorität: Deutsch > Englisch
+        fetched_transcript = ytt_api.fetch(
+            video_id, 
+            languages=['de', 'en'],
+            preserve_formatting=preserve_formatting
+        )
         
         # Konvertiere zu raw data
         transcript_data = fetched_transcript.to_raw_data()
@@ -66,39 +63,48 @@ def get_transcript():
         return jsonify({'error': 'Video is unavailable'}), 404
     
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({
+            'error': str(e),
+            'error_type': type(e).__name__,
+            'traceback': traceback.format_exc()
+        }), 500
 
 @app.route('/health', methods=['GET'])
 def health():
-    return jsonify({'status': 'ok', 'proxies_available': len(PROXIES)}), 200
+    return jsonify({
+        'status': 'ok',
+        'proxy_provider': 'Webshare Residential',
+        'proxy_username': WEBSHARE_USERNAME
+    }), 200
 
 @app.route('/test-proxy', methods=['GET'])
 def test_proxy():
-    """Testet ob Proxies funktionieren"""
+    """Testet ob Webshare Proxy funktioniert"""
     try:
-        proxy_config = get_random_proxy_config()
         ytt_api = YouTubeTranscriptApi(proxy_config=proxy_config)
-        
-        # Test mit bekanntem Video
         fetched = ytt_api.fetch('dQw4w9WgXcQ', languages=['en'])
         
         return jsonify({
-            'status': 'Proxy works!',
+            'status': 'Webshare Proxy works!',
             'test_video': 'dQw4w9WgXcQ',
-            'transcript_length': len(fetched)
+            'transcript_length': len(fetched),
+            'language': fetched.language
         })
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({
+            'error': str(e),
+            'error_type': type(e).__name__,
+            'traceback': traceback.format_exc()
+        }), 500
 
 @app.route('/languages', methods=['GET'])
 def get_languages():
-    """Liste verfügbare Sprachen für ein Video"""
+    """Liste alle verfügbaren Sprachen für ein Video"""
     video_id = request.args.get('video_id')
     if not video_id:
         return jsonify({'error': 'video_id parameter required'}), 400
     
     try:
-        proxy_config = get_random_proxy_config()
         ytt_api = YouTubeTranscriptApi(proxy_config=proxy_config)
         transcript_list = ytt_api.list(video_id)
         
@@ -107,7 +113,8 @@ def get_languages():
             available.append({
                 'language': transcript.language,
                 'language_code': transcript.language_code,
-                'is_generated': transcript.is_generated
+                'is_generated': transcript.is_generated,
+                'is_translatable': transcript.is_translatable
             })
         
         return jsonify({
@@ -116,15 +123,21 @@ def get_languages():
         })
     
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({
+            'error': str(e),
+            'error_type': type(e).__name__,
+            'traceback': traceback.format_exc()
+        }), 500
 
 @app.route('/', methods=['GET'])
 def home():
     return jsonify({
         'status': 'YouTube Transcript API is running',
-        'proxies_configured': len(PROXIES),
+        'version': '1.2.2',
+        'proxy_provider': 'Webshare (Rotating Residential)',
         'endpoints': {
-            '/transcript?video_id=VIDEO_ID': 'Get transcript',
+            '/transcript?video_id=VIDEO_ID': 'Get transcript (DE/EN priority)',
+            '/transcript?video_id=VIDEO_ID&preserve_formatting=true': 'Get transcript with HTML formatting',
             '/languages?video_id=VIDEO_ID': 'List available languages',
             '/test-proxy': 'Test if proxy works',
             '/health': 'Health check'
