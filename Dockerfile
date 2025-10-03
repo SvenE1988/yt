@@ -5,7 +5,7 @@ WORKDIR /app
 # Install dependencies
 RUN pip install --no-cache-dir \
     flask==3.0.0 \
-    youtube-transcript-api==0.6.2
+    youtube-transcript-api==1.2.2
 
 # Copy application
 COPY app.py .
