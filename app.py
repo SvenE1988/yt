@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 from youtube_transcript_api import YouTubeTranscriptApi
+from youtube_transcript_api.proxies import GenericProxyConfig
 from youtube_transcript_api._errors import TranscriptsDisabled, NoTranscriptFound, VideoUnavailable
 import os
 import random
@@ -20,14 +21,15 @@ PROXIES = [
     {"ip": "142.147.128.93", "port": "6593", "user": "slbfveyo", "pass": "86rico8f7ml1"},
 ]
 
-def get_random_proxy():
-    """Wählt zufällig einen Proxy aus"""
+def get_random_proxy_config():
+    """Erstellt eine zufällige Proxy-Config"""
     proxy = random.choice(PROXIES)
     proxy_url = f"http://{proxy['user']}:{proxy['pass']}@{proxy['ip']}:{proxy['port']}"
-    return {
-        'http': proxy_url,
-        'https': proxy_url
-    }
+    
+    return GenericProxyConfig(
+        http_url=proxy_url,
+        https_url=proxy_url
+    )
 
 @app.route('/transcript', methods=['GET'])
 def get_transcript():
@@ -36,11 +38,11 @@ def get_transcript():
         return jsonify({'error': 'video_id parameter required'}), 400
     
     try:
-        # Nutze zufälligen Proxy
-        proxies = get_random_proxy()
+        # Erstelle API-Instanz mit zufälligem Proxy
+        proxy_config = get_random_proxy_config()
+        ytt_api = YouTubeTranscriptApi(proxy_config=proxy_config)
         
-        # Neue API mit Proxy
-        ytt_api = YouTubeTranscriptApi(proxies=proxies)
+        # Fetch transcript
         fetched_transcript = ytt_api.fetch(video_id, languages=['de', 'en'])
         
         # Konvertiere zu raw data
@@ -74,13 +76,14 @@ def health():
 def test_proxy():
     """Testet ob Proxies funktionieren"""
     try:
-        proxies = get_random_proxy()
-        ytt_api = YouTubeTranscriptApi(proxies=proxies)
+        proxy_config = get_random_proxy_config()
+        ytt_api = YouTubeTranscriptApi(proxy_config=proxy_config)
+        
         # Test mit bekanntem Video
         fetched = ytt_api.fetch('dQw4w9WgXcQ', languages=['en'])
+        
         return jsonify({
             'status': 'Proxy works!',
-            'proxy_used': proxies['http'].split('@')[1],  # Zeigt IP ohne Credentials
             'test_video': 'dQw4w9WgXcQ',
             'transcript_length': len(fetched)
         })
@@ -95,9 +98,9 @@ def get_languages():
         return jsonify({'error': 'video_id parameter required'}), 400
     
     try:
-        proxies = get_random_proxy()
-        ytt_api = YouTubeTranscriptApi(proxies=proxies)
-        transcript_list = ytt_api.list_transcripts(video_id)
+        proxy_config = get_random_proxy_config()
+        ytt_api = YouTubeTranscriptApi(proxy_config=proxy_config)
+        transcript_list = ytt_api.list(video_id)
         
         available = []
         for transcript in transcript_list:
