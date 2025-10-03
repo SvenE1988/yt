@@ -1,6 +1,18 @@
 FROM python:3.11-slim
+
 WORKDIR /app
-RUN pip install --no-cache-dir flask youtube-transcript-api==0.6.2
+
+# Install dependencies
+RUN pip install --no-cache-dir \
+    flask==3.0.0 \
+    youtube-transcript-api==0.6.2
+
+# Copy application
 COPY app.py .
-EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import requests; requests.get('http://localhost:8080/health')" || exit 1
+
+# Run application
 CMD ["python", "app.py"]
