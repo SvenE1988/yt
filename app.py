@@ -2,7 +2,6 @@ from flask import Flask, request, jsonify
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import TranscriptsDisabled, NoTranscriptFound, VideoUnavailable
 import os
-import traceback
 
 app = Flask(__name__)
 
@@ -13,9 +12,20 @@ def get_transcript():
         return jsonify({'error': 'video_id parameter required'}), 400
     
     try:
-        # Explizite Sprachauswahl: Deutsch oder Englisch
-        transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['de', 'en'])
-        return jsonify({'transcript': transcript})
+        # Neue API: Instanz erstellen und fetch() nutzen
+        ytt_api = YouTubeTranscriptApi()
+        fetched_transcript = ytt_api.fetch(video_id, languages=['de', 'en'])
+        
+        # Konvertiere zu raw data (Liste von Dicts)
+        transcript_data = fetched_transcript.to_raw_data()
+        
+        return jsonify({
+            'video_id': video_id,
+            'language': fetched_transcript.language,
+            'language_code': fetched_transcript.language_code,
+            'is_generated': fetched_transcript.is_generated,
+            'transcript': transcript_data
+        })
     
     except TranscriptsDisabled:
         return jsonify({'error': 'Subtitles are disabled for this video'}), 404
@@ -26,32 +36,50 @@ def get_transcript():
     except VideoUnavailable:
         return jsonify({'error': 'Video is unavailable'}), 404
     
-    except AttributeError as e:
-        return jsonify({'error': f'Library error: {str(e)}', 'traceback': traceback.format_exc()}), 500
-    
     except Exception as e:
-        return jsonify({'error': str(e), 'type': type(e).__name__, 'traceback': traceback.format_exc()}), 500
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/health', methods=['GET'])
 def health():
     return jsonify({'status': 'ok'}), 200
 
-@app.route('/test', methods=['GET'])
-def test():
-    """Test if library is properly imported"""
+@app.route('/languages', methods=['GET'])
+def get_languages():
+    """Liste verfügbare Sprachen für ein Video"""
+    video_id = request.args.get('video_id')
+    if not video_id:
+        return jsonify({'error': 'video_id parameter required'}), 400
+    
     try:
-        import youtube_transcript_api
+        ytt_api = YouTubeTranscriptApi()
+        transcript_list = ytt_api.list_transcripts(video_id)
+        
+        available = []
+        for transcript in transcript_list:
+            available.append({
+                'language': transcript.language,
+                'language_code': transcript.language_code,
+                'is_generated': transcript.is_generated
+            })
+        
         return jsonify({
-            'library_version': youtube_transcript_api.__version__ if hasattr(youtube_transcript_api, '__version__') else 'unknown',
-            'has_get_transcript': hasattr(YouTubeTranscriptApi, 'get_transcript'),
-            'available_methods': dir(YouTubeTranscriptApi)
-        }), 200
+            'video_id': video_id,
+            'available_transcripts': available
+        })
+    
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/', methods=['GET'])
 def home():
-    return jsonify({'status': 'YouTube Transcript API is running', 'usage': '/transcript?video_id=VIDEO_ID'})
+    return jsonify({
+        'status': 'YouTube Transcript API is running',
+        'endpoints': {
+            '/transcript?video_id=VIDEO_ID': 'Get transcript',
+            '/languages?video_id=VIDEO_ID': 'List available languages',
+            '/health': 'Health check'
+        }
+    })
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
