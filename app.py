@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api.proxies import GenericProxyConfig
 import random
+import traceback
 
 app = Flask(__name__)
 
@@ -37,7 +38,14 @@ def get_transcript():
             'transcript': transcript.to_raw_data()
         })
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        # WICHTIG: Zeige den vollständigen Fehler!
+        print(f"ERROR: {str(e)}")
+        print(traceback.format_exc())
+        return jsonify({
+            'error': str(e),
+            'type': type(e).__name__,
+            'traceback': traceback.format_exc()
+        }), 500
 
 @app.route('/health', methods=['GET'])
 def health():
